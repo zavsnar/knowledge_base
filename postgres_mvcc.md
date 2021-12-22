@@ -128,7 +128,7 @@ The `DELETE` will have no effect even though there is a `website.hits = 10` row 
 ---
 ## Example of using Repeatable read level
  * check logical consistency in DB through 2 queries
- https://stash.wargaming.net/projects/GAME_SERVICES/repos/wgbob/browse/wgbob/cli/monitoring.py#90-92
+ --placeholder for example--
 
 ---
 # How PG stores data
@@ -380,7 +380,7 @@ Sometimes concurrent transactions should see the same DB snapshot (for example `
  `fillfactor` percentage of page size after which the next `INSERT` will add row in next page. And the reminder (100% - fillfactor) will be used for `UPDATE`s of current rows.
 By default `fillfactor` for tables = 100 and for indexes = 90.
 
-**Best practice**: If you are going to insert rows without updates it is a good idea to set `fillfactor=100` for index. For example for Materialised Views (https://stash.wargaming.net/projects/CLANWARS/repos/wgelen/browse/wgelen/storage/postgresql/leaderboards_repository.py#223,226).
+**Best practice**: If you are going to insert rows without updates it is a good idea to set `fillfactor=100` for index. For example for Materialised Views (--placeholder for example --.
 
 In-page vacuuming executes in 2 cases:
  * when previous `UPDATE` could not find space in current page and marked current page for cleaning and inserted in next page. Page is vacuuming in next access

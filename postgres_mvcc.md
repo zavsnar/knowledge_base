@@ -1,3 +1,4 @@
+Based on a series of articles by ProsgresPro (https://postgrespro.com/blog/pgsql/5967856).
 
 # Isolation levels in Postgres
 

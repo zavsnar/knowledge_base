@@ -13,7 +13,7 @@
 ---
 ## Read Committed
 
-* In Postgres Read Uncommitted acts like Read Commited
+* In Postgres Read Uncommitted acts like Read Committed
 * Select query returns data at the beginning of execution
 ``` sql
 => SELECT amount, pg_sleep(2) FROM accounts WHERE client = 'bob';
@@ -33,7 +33,7 @@
 ---
 ### Examples inconsistency
 * Concurrent executing UPDATE and UPDATE with SELECT. 
-For example with query in Read Committed level will has Nonrepeatable Read anomaly
+For example, with a query in Read Committed level will have Nonrepeatable Read anomaly
 ``` sql
 => SELECT * FROM accounts WHERE client = 'bob';
  id | number | client | amount 
@@ -45,12 +45,12 @@ For example with query in Read Committed level will has Nonrepeatable Read anoma
 ``` sql
 => BEGIN;
 => UPDATE accounts SET amount = amount - 100 WHERE id = 3;
-|  /* UPDATE is blocked by 1st transation UPDATE */
+|  /* UPDATE is blocked by 1st transaction UPDATE */
 |  => UPDATE accounts SET amount = amount * 1.01
 |  WHERE client IN (
 |  /* But SELECT isn't blocked and 
     returns rows versions without application UPDATE from 1st transaction 
-    therefore bob is valid client */
+    therefore bob is a valid client */
 |    SELECT client
 |    FROM accounts
 |    GROUP BY client
@@ -115,10 +115,10 @@ The `DELETE` will have no effect even though there is a `website.hits = 10` row 
  * On the same queries, we get an access error
 `|  ERROR:  could not serialize access due to concurrent update`
 ## Serializable
- * False-positive errors depending on indexes, memory and moons phase
+ * False-positive errors depending on indexes, memory, and moons phase
  * Parallel query execution plan is unavailable
- * unable to use Serializable and other isolation levels in other transactions. Serializable level will be silently downgraded to less strict level if it using.
- For example both transactions will be executed with REPEATABLE READ level.
+ * unable to use Serializable and other isolation levels in other transactions. Serializable level will be silently downgraded to a less strict level if it is used.
+ For example, both transactions will be executed with REPEATABLE READ level.
  ``` sql
  => BEGIN ISOLATION LEVEL REPEATABLE READ;
  ... some query
@@ -128,7 +128,7 @@ The `DELETE` will have no effect even though there is a `website.hits = 10` row 
 ---
 ## Example of using Repeatable read level
  * check logical consistency in DB through 2 queries
- --placeholder for example--
+ 
 
 ---
 # How PG stores data
@@ -136,16 +136,29 @@ The `DELETE` will have no effect even though there is a `website.hits = 10` row 
  * main - with data rows
  * init - using for UNLOGGED tables
  * fsm - free space map
- * vm (visibility map) - bitmap of pages with only actual rows
+ * vm (visibility map) - the bitmap tracks those pages that contain pretty old tuples, which are visible in all data snapshots for sure
 ## Pages
  * Default size is 8Kb
  * Data from pages reads to buffers "as is" therefore we can't transfer files for DB between different architectures:
      * bytes ordering in x86 and ARM is different
-     * align in 32-bit and 64-bit systems is different (4 and 8 byte respectively)
+     * align in 32-bit and 64-bit systems is different (4 and 8 bytes respectively)
+``` sql
+       0  +-----------------------------------+
+          | header                            |
+      24  +-----------------------------------+
+          | array of pointers to row versions |
+   lower  +-----------------------------------+
+          | free space                        |
+   upper  +-----------------------------------+
+          | row versions                      |
+ special  +-----------------------------------+
+          | special space                     |
+pagesize  +-----------------------------------+
+```
 ---
 ## TOAST
 Oversized Attributes Storage Technique
- * PG tries to put at least 4 rows in page (if page size is 8K row with headers should be less 2040 bytes)
+ * PG tries to put at least 4 rows on the page (if the page size is 8K row with headers should be less than 2040 bytes)
  * Storage strategies by types:
 
 | Strategy | Types   | Description |
@@ -153,14 +166,14 @@ Oversized Attributes Storage Technique
 | plain    | integer | Don't use TOAST - store values in table |
 | extended |text, jsonb| Stores in TOAST in zipped form |
 | external |text, jsonb| Stores in TOAST in unzipped form |
-| main     | numeric | Try to zip value if it don't help store in TOAST |
+| main     | numeric | Try to zip value if it doesn't help store in TOAST |
 
 If we knew that zipping is useless for some field we can define storage as external.
 ``` sql
 ALTER TABLE accounts ALTER COLUMN number SET STORAGE external;
 ```
  * Values in TOAST table are stored in N-rows (data is sliced by 2000 bytes)
- * Postgres is NOT good BD for storing overweight objects
+ * Postgres is NOT a good BD for storing overweight objects
 
 ### Indexes for big-size fields
  * Values over 1/4 page size can't be stored in B-Tree indexes (PG11)
@@ -171,21 +184,21 @@ ALTER TABLE accounts ALTER COLUMN number SET STORAGE external;
 
 ## Headers of row version
  - t_xmin - transaction id which adds the row
- - t_xmax - transaction id which delete the row
- - t_infomask - properties of verion (commited, aborted)
- - t_ctid (page num, pointer_idx in page) - point to actual version of row
- - t_bits - bit-mask that show which fields have NULL value. Yes NULL values don't store in fields
- - t_cmin - counter which using for CURSORs consistency
+ - t_xmax - transaction id which deletes the row
+ - t_infomask - properties of version (committed, aborted)
+ - t_ctid (page num, pointer_idx in page) - point to the actual version of the row
+ - t_bits - bit-mask that shows which fields have NULL value. Yes NULL values don't store in fields
+ - t_cmin - counter which is used for CURSORs consistency
 
-Simple way to get `xmin` and `xmax`.
+The simple way to get `xmin` and `xmax`.
 ``` sql
 SELECT xmin, xmax, * FROM t;
 ```
 
 ## Transaction statuses
- * All active transactions are in shared memory in structure `ProcArray`.
- * Statuses (committed, aborted) of finished transactions are storing in XACT (CLOG for PG versions before 10).
- List of all transactions is in PGDATA/pg_xact, but several last pages are stored in buffers.
+ * All active transactions are in shared memory in the structure `ProcArray`.
+ * Statuses (committed, aborted) of finished transactions are stored in XACT (CLOG for PG versions before 10).
+ The list of all transactions is in PGDATA/pg_xact, but several last pages are stored in buffers.
 
 ## What is happening inside before and after transaction
 ``` sql
@@ -234,9 +247,9 @@ COMMIT;
 ```
 Query `SELECT * FROM heap_page('t',0);` returns the same result as before `COMMIT`.
 
-Command `COMMIT` or `ROLLBACK` **don't change rows** - only add record to XACT with transaction status.
+Command `COMMIT` or `ROLLBACK` **don't change rows** - only add a record to XACT with transaction status.
 It is an optimization that helps don't load all changed rows and change their headers.
-**Important!** `COMMIT` doesn't change rows headers!
+**Important!** `COMMIT` doesn't change row headers!
 
 ## SELECT changes rows headers!
 ``` sql
@@ -252,14 +265,14 @@ SELECT * FROM heap_page('t',0);
 ```
 ### What does SELECT really do?
 > Isolation levels change `SELECT` behavior. Here we consider `READ COMMITTED`.
-1. Find row version with `xmax` aborted `(a)` and `xmin` with flag commited `(c)` where `t_ctid` point to itself or `xmin == current transaction`
-2. Find with the same conditions but `xmin` doesn't have committed flag:
+1. Find row version with `xmax` aborted `(a)` and `xmin` with flag committed `(c)` where `t_ctid` point to itself or `xmin == current transaction`
+2. Find with the same conditions but `xmin` doesn't have a committed flag:
     * skip rows from other active transactions (check in structure `ProcArray`)
     * check `xmin` is in finished transactions (from XACT)
     * **update headers** for rows versions and set corresponding flags: committed, aborted
 
 ## DELETE and ROLLBACK
-`DELETE` set `xmax` to current transaction (that locks row for updating from other transactions) and unset aborting flag `(a)`.
+`DELETE` sets `xmax` to the current transaction (that locks the row for updating from other transactions) and unsets aborting flag `(a)`.
 ``` sql
 BEGIN;
 DELETE FROM t;
@@ -271,7 +284,7 @@ SELECT * FROM heap_page('t',0);
  
  ROLLBACK;
 ```
-`ROLLBACK` as `COMMIT` doesn't change headers, but `SELECT` do that.
+`ROLLBACK` as `COMMIT` doesn't change headers, but `SELECT` does that.
 ``` sql
 SELECT * FROM t;
 ...
@@ -320,10 +333,10 @@ After `CURSOR` declaration all new rows in all transactions start incrementing `
 ```
 
 ## SAVEPOINTs
-`SAVEPOINT` uses an ordinary transaction mechanism and each `SAVEPOINT` has its own transaction id and save in XACT.
+`SAVEPOINT` uses an ordinary transaction mechanism and each `SAVEPOINT` has its own transaction id and is saved in XACT.
 
 ## Indexes
-Indexes hold all versions of row which exist in table.
+Indexes hold all versions of row which exist in the table.
 ``` sql
 SELECT itemoffset, ctid FROM bt_page_items('t_s_idx',1);
  itemoffset | ctid  
@@ -334,13 +347,13 @@ SELECT itemoffset, ctid FROM bt_page_items('t_s_idx',1);
 ---
 # Snapshots
  * With Read Committed snapshots create on every query
- * With Repeatable Read and Sirializable - on 1st query in transaction
+ * With Repeatable Read and Sirializable - on 1st query in a transaction
 
-On creating snapshot statuses of active transactions (from ProcArray) are stored in the snapshot. That means that each snapshot should get with **blocking** ProcArray for a copy. That's why sometimes even with a powerful machine we can see performance downgrading and a low level of using resources cause of ProcArray blocking. It is one of the reasons why hundreds of active connections are a bad idea.
+On creating a snapshot statuses of active transactions (from ProcArray) are stored in the snapshot. That means that each snapshot should get with **blocking** ProcArray for a copy. That's why sometimes even with a powerful machine we can see performance downgrading and a low level of using resources cause of ProcArray blocking. It is one of the reasons why hundreds of active connections are a bad idea.
 
  - snapshot.xmax - last transaction + 1
  - snapshot.xip - list of active transactions
- - snapshot.xmin - the earlies of active transactions
+ - snapshot.xmin - the earliest of active transactions
 
 We can get this information by pattern `xmax:xmin:xip`
 ``` sql
@@ -356,14 +369,14 @@ We can get this information by pattern `xmax:xmin:xip`
 Rows with xid < snapshot.xmin can be vacuumed. Therefore long-living transactions are blocking vacuuming old rows versions.
 Event horizon is shared across all transactions.
 
-**We should try to use only short-living transactions**, but if we can not rule this on application side we can use settings:
+**We should try to use only short-living transactions**, but if we can not rule this on the application side we can use settings:
  - old_snapshot_threshold
  - idle_in_transaction_session_timeout
-**Another good advice**: bad idea is combine OLTP and OLAP approaches in Postgres because long analitics query will block `VACUUM`ing rows for fast updating rows.
+**Another good advice**: A bad idea is combining OLTP and OLAP approaches in Postgres because long analytics queries will block `VACUUM`ing rows for fast updating rows.
 
 ---
 ## Export snapshot
-Sometimes concurrent transactions should see the same DB snapshot (for example `pg_dump` utility). It is available export and apply particular snapshot for transaction.
+Sometimes concurrent transactions should see the same DB snapshot (for example `pg_dump` utility). It is available to export and apply a particular snapshot for a transaction.
 ``` sql
 => BEGIN ISOLATION LEVEL REPEATABLE READ;
 => SELECT pg_export_snapshot();
@@ -377,29 +390,29 @@ Sometimes concurrent transactions should see the same DB snapshot (for example `
  ---
 # In-page vacuum
  
- `fillfactor` percentage of page size after which the next `INSERT` will add row in next page. And the reminder (100% - fillfactor) will be used for `UPDATE`s of current rows.
+ `fillfactor` percentage of page size after which the next `INSERT` will add a row on the next page. And the reminder (100% - fillfactor) will be used for `UPDATE`s of current rows.
 By default `fillfactor` for tables = 100 and for indexes = 90.
 
-**Best practice**: If you are going to insert rows without updates it is a good idea to set `fillfactor=100` for index. For example for Materialised Views (--placeholder for example --.
+**Best practice**: If you are going to insert rows without updates it is a good idea to set `fillfactor=100` for index. For example for Materialised Views .
 
 In-page vacuuming executes in 2 cases:
- * when previous `UPDATE` could not find space in current page and marked current page for cleaning and inserted in next page. Page is vacuuming in next access
+ * when the previous `UPDATE` could not find space on the current page and mark the current page for cleaning and insert in the next page. Page is vacuuming in the next access
  * when fillfactor is achieved vacuuming executing right now
 
 ---
 ## Indexes
-In-page vacuuming cleans only rows versions (before event horizon) but doesn't clean in-page pointers. Because index is placed on other pages and can have links to pointers inside page. Whereas rows are being moved to higher addresses and marked as `dead` and actual rows are moving in lower addresses.
+In-page vacuuming cleans only rows versions (before event horizon) but doesn't clean in-page pointers. Because the index is placed on other pages and can have links to pointers inside the page. Whereas rows are being moved to higher addresses and marked as `dead` and actual rows are moving to lower addresses.
 
-**Record in indexes** page (which point to dead row) will be **corrected at the next access** (SELECT or UPDATE).
+**Record in indexes** page (which points to dead row) will be **corrected at the next access** (SELECT or UPDATE).
 
 ---
 ### HOT updates optimizations
-HOT optimization will be applied when we update field which doesn't mention in index.
+HOT optimization will be applied when we update a field which doesn't mentioned in the index.
 
-After updating fields that don't participate in index, index page won't have additional links to new row versions. Instead, index will point to 1st version of row in the table and have to jump to actual version using `t_ctid`.
-New link will be added to index page only in case when new version of row doesn't fit on page and has to be added to the next page. In this case, index will have 2 links to versions of row.
- - Row which holds link from index is marked as HHU (**Heap Hot Updated**).
- - Row which doesn't hold this link is marked as HOT (**Heap Hot Updated**).
+After updating fields that don't participate in the index, the index page won't have additional links to new row versions. Instead, the index will point to 1st version of the row in the table and have to jump to the actual version using `t_ctid`.
+The new link will be added to the index page only in case when the new version of the row doesn't fit on the page and has to be added to the next page. In this case, the index will have 2 links to versions of the row.
+ - Row which holds the link from the index is marked as HHU (**Heap Hot Updated**).
+ - Row which doesn't hold this link is marked as HOT (**Heap-Only Tuple**).
 
 ``` sql
 SELECT * FROM heap_page('hot',0);
@@ -417,40 +430,63 @@ SELECT * FROM heap_page('hot',0);
           1 | (1,1)
           2 | (0,1)
  ```
-**Best practice**: To reduce amount of in-page vacuuming while updating non-indexing fields recommended increasing `fillfactor`.
+**Best practice**: To reduce the amount of in-page vacuuming while updating non-indexing fields recommended increasing `fillfactor`.
 
 ---
 # VACUUM
 
 Vacuum blocks only change DLL queries, like `CREATE INDEX` and `CREATE TABLE`.
 
-**`VACUUM`** remove links to non-actual rows versions from indexes and mark rows versions in table as `unused`. But doesn't compact rows from different pages. Therefore:
+**`VACUUM`** remove links to non-actual row versions from indexes and mark row versions in the table as `unused`. But doesn't compact rows from different pages. Therefore:
 - used space for tables and indexes doesn't change
 - a percentage of useful information on pages is decreasing
 - index scan and table full-scan has to load to buffer the same amount of pages
 
-Additionally `VACUUM` runs only on pages that don't true in invisibility map and after running updates visibility map (using in index-only scan).
+Additionally `VACUUM` runs only on pages that aren't presented in the visibility map and after running updates visibility map (using in index-only scan).
 
-If all removing rows versions ids list don't fil in `maintenance_work_mem` `VACUUM` has to rescan indexes again. It is happening when enormous amount rows are updated or deleted.
+If all removing rows versions ids list don't fil in `maintenance_work_mem` `VACUUM` has to rescan indexes again. It happens when an enormous amount rows are updated or deleted.
 
 ## VACUUM FULL
 `VACUUM FULL` is repacking table and indexes but gets table lock.
 It can be a good idea to run `VACUUM FULL` (if you can afford significant downtime) after a big amount of deleting or updating.
 `CLUSTER` is very similar but additionally places rows in special order useful for indexes.
-`REINDEX` is recreating index (it is used in `VACUUM FULL`).
-If we don't want to lock table for all query time we can use [pg_repack](https://github.com/reorg/pg_repack)
+`REINDEX` is a recreating index (it is used in `VACUUM FULL`).
+If we don't want to lock the table for all query time we can use [pg_repack](https://github.com/reorg/pg_repack)
 
-`TRUNCATE` create a new file and delete the old one.
+`TRUNCATE` creates a new file and deletes the old one.
 
 ---
 ## AUTOVACUUM
 
-Rate of running `AUTOVACUUM` is defined by settings:
+The rate of running `AUTOVACUUM` is defined by the settings:
 - autovacuum_vacuum_threshold - amount of dead row versions. default = 200.
-- autovacuum_vacuum_scale_factor - fraction dead row versions in table. default = 0.2 (20%)
+- autovacuum_vacuum_scale_factor - fraction dead row versions in the table. default = 0.2 (20%)
 
- # Transaction id wraparound
+### Append-only tables
+Any table used exclusively in append-only mode will not be vacuumed and therefore, the visibility map won't be updated for it. But this makes use of index-only scan impossible. Actually, vaccuming will be eventually run but very rarely. (That's no more the case since PostgreSQL 13. Now autovacuum also takes insertions into account.)
+
+
+
+# Transaction id wraparound
  
- Transaction id is stored in 32 bits.
+ Transaction id is stored in 32 bits. This is a pretty large number (about 4 billion), but with the intensive work of the server, this number is unlikely to get exhausted. For example: with a workload of 1000 transactions a second, this will happen as early as one month and a half of continuous work.
+ Postgres has the mechanism of freezing rows and even table pages. That allows the reuse of transaction ids.
+ ![Transactions wraparound](https://postgrespro.com/media/2021/03/19/freeze4-en.png)
  
+### Row freezing
+ The row is described as frozen if both hint bits `committed` and `aborted` are set. If a row is marked as frozen, `xmin` does not mean anything.
+ Here Postgres introduces the age of a row (instead of using transation id) which is calculated from the last frozen row tid.
+ Rows freezing is provided by `VACUUM` based on settings `vacuum_freeze_min_age`, which defines the minimum age of the `xmin` transaction for which a tuple can be frozen.
+
+### Table pages freezing
+ The vacuuming looks only through pages not tracked in the visibility map. Remind that pages are placed in the visibility map when the page contains only the actual version of rows that are visible in all transactions.
+ To freeze the tuples left on pages (presented in the visibility map) where vacuuming does not normally look, the second parameter is provided: `vacuum_freeze_table_age`. It defines the transaction age for which vacuuming ignores the visibility map and looks through all the table pages to freeze.
+ Each page stores the transaction ID for which all the older transactions are known to be frozen for sure (all-frozen bit `pg_class.relfrozenxid`). And this is the age of this stored transaction that the value of the `vacuum_freeze_table_age` parameter is compared to.
+ Thanks to all-frozen vacuuming has not to go through all pages but only for which the bit is not set yet.
+ Anyway, all table pages get frozen once every (`vacuum_freeze_table_age` − `vacuum_freeze_min_age`) transactions.
  
+#### Aggressive freezing
+ VACUUM usually does not visit append-only tables because those tables do not have dead tuples. But VACUUM will be eventually executed when the age of the oldest unfrozen row has achieved the value of parameter `autovacuum_freeze_max_age`. By default `autovacuum_freeze_max_age` = 2 billion transactions, but we can change it for a table
+``` sql
+ALTER TABLE tfreeze SET (autovacuum_freeze_max_age = 1000000, fillfactor = 100);
+```

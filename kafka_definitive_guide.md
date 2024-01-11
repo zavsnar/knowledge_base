@@ -89,6 +89,17 @@ __partition.assignment.strategy__
  * Sticky - as RoundRobin but try to stick partitions to consumers through rebalances which reduces some costs
  * Cooperative Sticky - joins previous strategies but additionally implements **Cooperative rebalance**
 
+_client.rack_ - by default clients fetch messages from the leader replica of each partition. But we can change that behavior to fetching from closest replica or other according your own rules.
+
+## Commit offset
+Consumers always commit offsets of the last message that was received from the `poll()` call. 
+We have 2 options to handle offset commits:
+ * commit by achieving time (commit every N seconds) - can lead to missing messages (in case of consumer crush) or double processing messages in case of reassigning partitions to other consumers.
+ * commit by processed messages number - preferable way.
+
+*Sync Commit* - send a request to a broker and await a response in a blocking way. In case of an error, we can retry again or give up. Useful for stopping or revoking consumers.
+*Async Commit* - doesn't block the polling process. Unable to retry because the consumer can go ahead and retrying can lead to committing less offset. But we can use callback for logging errors or metrics purposes.
+
 
 
 
@@ -96,6 +107,9 @@ __partition.assignment.strategy__
 # Kafka Cluster Settings
 
 ## Retention
+
+_offsets.retention.minutes_ - how long Kafka saves committed offsets in a consumer group. By default, 7 days. After that amount of time committed offsets will be emptied and consumers on connecting to the group will be considered brand new and can start fetching from the beginning of the partition.
+
 Defines the lifetime of messages in a topic. Messages are written on disk by batches (**segments**). And retention applied to segments not to single messages.
 We can set _log.retention.ms_ or _log.retention.bytes_ what does meet first that will be applied. Retention can be set for a topic.
 

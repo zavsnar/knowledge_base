@@ -62,7 +62,7 @@ And can be caused by _TimeoutException_.
  Rebalance happens when a new consumer joins a group, on consumer timeout of proper leaving a group, and additionally, when consuming group settings are changed.
  Rebalance types:
  * **Eager rebalance**. All consumers stop consuming, give up their ownership of all partitions, rejoin the consumer group, and get a brand-new partition assignment. This leads to stopping consuming messages from all partitions for a while.
- * **Cooperative rebalance**. Reassignment of partitions happens by small sub-sets and in several phases which allow carry-on processing messages from other partitions.
+ * **Cooperative rebalance**. Reassignment of partitions happens by small sub-sets and in several phases which allow carry-on processing messages from other partitions. But there are several exceptional cases when partition reassignment happens without calling revoke callback on the consumer (that has read partition before rebalance), so the consumer commits offset inappropriately or doesn't commit at all. As a result some messages can be read twice. That is a trade-off for cooperative strategy. My conclusion: **cooperative rebalance strategy can be used only in services with idempotent consuming messages**.
 
  Consumers maintain ownership of the partitions assigned to them by sending (in a background thread) _heartbeats_ to a Kafka broker designated as the group coordinator (this broker can be different for different consumer groups). 
 If a consumer stops sending _heartbeats_ for a period more than __session.timeout.ms__ that consumer is considered dead and the coordinator starts the rebalance. In addition, a consumer can notify the coordinator on its shutdown.
@@ -73,9 +73,17 @@ on the partition assignment, the consumer group leader sends the list of assignm
 
 Alongside with dynamic assignment of partitions to consumers, we can declare **static consumer** by defining __group.instance.id__ for it. In that case, partitions assigned to the static consumer won't be reassigned to another, and rebalance won't be started if the static consumer doesn't send heartbeats. But by achieving __session.timeout.ms__ consumer becomes identified dead and partitions will be reassigned to other consumers. Static consumers are handy for applications with heavy internal state which is expensive to construct and you don't want to start rebalance on consumer restart.
 
-Consumers can subscribe to several topics using regex. When a new topic with a matching name is added the rebalance will happen almost immediately and consumers will start consuming from the new topic. But important to understand that the consumer periodically will request all topic list with all partitions and apply regex on them. Which can lead to significant overhead, and subscribing by regex is a very specific desire.
+Consumers can subscribe to several topics using regex. When a new topic with a matching name is added the rebalance will happen almost immediately and consumers will start consuming from the new topic. But important to understand that the consumer periodically will request all topic list with all partitions and apply regex on them. Which can lead to significant overhead, and subscribing by regex is a particular desire.
 
-Consumers have to do _poll_ periodically, otherwise after _max.poll.interval.ms_ consumer will be considered dead. So, you should exclude long-blocking operations in the pool loop.
+Consumers have to do `poll()` periodically, otherwise after _max.poll.interval.ms_ consumer will be considered dead. So, you should exclude long-blocking operations in the pool loop.
+
+Consumers should implement callbacks on:
+ * `onPartitionsAssigned` - called after a partition has been revoked and assigned to a new consumer but before fetching the first messages. The callback must be completed no longer than _max.poll.timeout.ms_.
+ * `onPartitionsRevoked` - called when the consumer has to give up partitions. That is a great place to synchronously commit offsets and close file descriptors of DB connections.
+ * `onPartitionsLost` - only called when a cooperative rebalancing algorithm is used, and only in exceptional cases where the partitions were assigned to other consumers without first being revoked by the rebalance algorithm (in normal cases, `onPartitionsRevoked()` will be called). We have to be **aware** that on commit offsets in this callback, another consumer (new owner of partition) might commit its offset.
+if you don’t implement this method, `onPartitionsRevoked()` will be called instead. **TBD: What is this exceptional case?**
+
+
 
 ## Consumer Configuration
 
@@ -100,6 +108,8 @@ We have 2 options to handle offset commits:
 *Sync Commit* - send a request to a broker and await a response in a blocking way. In case of an error, we can retry again or give up. Useful for stopping or revoking consumers.
 *Async Commit* - doesn't block the polling process. Unable to retry because the consumer can go ahead and retrying can lead to committing less offset. But we can use callback for logging errors or metrics purposes.
 
+## How to exit
+Implement `ShutdownHook` which is running in a separate thread and calls  `consumer.wakeup()` to immediately stop the long polling process with the exception `WakeupException`. But we don't bother about it because we don't set a big polling timeout and can just wait until the poll has been returned and stop the polling.
 
 
 
